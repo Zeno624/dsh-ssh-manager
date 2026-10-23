@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "SSH Host Manager",
+    "description": "Manage remote SSH hosts in the right sidebar, open native SSH terminals, and choose per session which hosts the agent may use."
+  }
+}

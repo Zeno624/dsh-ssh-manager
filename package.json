@@ -1,0 +1,49 @@
+{
+  "name": "@local/dsh-ssh-manager",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Remote SSH host resources for sessions: left-sidebar host management, per-session authorization, right-sidebar remote file browsing, and agent tools.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zeno624/dsh-ssh-manager.git"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "ssh",
+    "remote-hosts"
+  ],
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./host.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "host.js",
+    "client.js",
+    "askpass.exe",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "scripts/build-askpass.ps1"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  }
+}

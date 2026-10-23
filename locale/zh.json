@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "SSH 主机管理",
+    "description": "在右侧栏管理远程 SSH 主机、打开原生 SSH 终端，并按会话选择 agent 可以访问哪些主机。"
+  }
+}

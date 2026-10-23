@@ -559,7 +559,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'sshm-modal-body' },
           error ? h('div', { className: 'sshm-alert sshm-field-full' }, error) : null,
           h(Field, { label: t('name'), value: draft.name, onChange: set('name'), placeholder: 'compile' }),
-          h(Field, { label: t('host'), value: draft.host, onChange: set('host'), placeholder: '10.0.13.236' }),
+          h(Field, { label: t('host'), value: draft.host, onChange: set('host'), placeholder: '192.0.2.10' }),
           h(Field, { label: t('user'), value: draft.user, onChange: set('user') }),
           h(Field, { label: t('port'), value: draft.port, onChange: set('port'), type: 'number' }),
           h(Field, { label: t('root'), value: draft.root, onChange: set('root'), hint: '/ 或 /var/www' }),

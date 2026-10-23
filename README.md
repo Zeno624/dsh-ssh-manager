@@ -51,14 +51,17 @@ powershell -ExecutionPolicy Bypass -File scripts/build-askpass.ps1
 
 ## 认证
 
-Agent 侧是**非交互 SSH**，必须密钥登录。本机已生成 `~/.ssh/id_ed25519`，还需把公钥装到每台主机（每台输一次密码）：
+Agent 侧是**非交互 SSH**。两种方式，任选其一：
+
+1. **密钥（推荐）**：把本机公钥装到远程主机（每台输一次密码）：
 
 ```powershell
-type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh root@10.0.13.236 "mkdir -p ~/.ssh; chmod 700 ~/.ssh; cat >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys"
-type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh root@10.0.13.235 "mkdir -p ~/.ssh; chmod 700 ~/.ssh; cat >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys"
+type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh root@build-host "mkdir -p ~/.ssh; chmod 700 ~/.ssh; cat >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys"
 ```
 
-验证：`ssh -o BatchMode=yes compile hostname`。
+验证：`ssh -o BatchMode=yes build-host hostname`。
+
+2. **密码**：在主机编辑表单里填写密码，见下一节。
 
 ### 密码认证（可选，按主机）
 

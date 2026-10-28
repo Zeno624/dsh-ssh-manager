@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 const NAME = 'dsh-ssh-manager'
 const STATE_VERSION = 1
 const COMMAND = 'ssh-manager'
+const API_PATH = '/ssh-manager/api'
 const BUFFER_LIMIT = 512 * 1024
 
 function stateDir() {
@@ -174,7 +175,7 @@ function tool(name, description, properties, required, run) {
 }
 
 export const name = NAME
-export const inject = ['tools', 'commands', 'subprocess', 'workingDirectory', 'credentials']
+export const inject = ['tools', 'webServer', 'subprocess', 'workingDirectory', 'credentials']
 
 export function apply(ctx) {
   const state = loadState()
@@ -808,16 +809,12 @@ export function apply(ctx) {
     }))
   }
 
-  // --- commands: the Client UI's data channel -------------------------------
+  // --- RPC: shared by the HTTP bridge (the Client UI's data channel) --------
   function commandResult(payload) {
     return { kind: 'success', text: JSON.stringify(payload) }
   }
 
-  ctx.commands.register({
-    name: COMMAND,
-    description: 'SSH manager bridge used by the SSH sidebar panel and the session host picker.',
-    recordInput: false,
-    async handler(invocation) {
+  async function handleInvocation(invocation) {
       const raw = String(invocation.rawInput ?? '').trim()
       const body = raw.startsWith('/' + COMMAND) ? raw.slice(COMMAND.length + 1).trim() : raw
       let payload
@@ -905,9 +902,31 @@ export function apply(ctx) {
           const requested = Array.isArray(payload.hosts) ? payload.hosts.filter((id) => typeof id === 'string') : []
           const known = new Set(state.hosts.map((host) => host.id))
           const next = [...new Set(requested.filter((id) => known.has(id)))]
+          const previous = new Set(grantsOf(state, agentId))
+          const started = []
+          const failures = []
+          // Authorizing a local WSL host starts it right away: the session picker
+          // is the only place the user should need to act.
+          for (const id of next) {
+            if (previous.has(id)) continue
+            const host = hostById(state, id)
+            if (host === undefined || host.kind !== 'wsl') continue
+            try {
+              const distros = await distrosFor(invocation.signal, true)
+              const entry = distros.find((item) => item.name === host.host)
+              if (entry !== undefined && entry.state === 'Running') continue
+              await controlDistro('start', host.host, invocation.signal)
+              started.push(host.name)
+            } catch (error) {
+              failures.push({
+                host: host.name,
+                message: String(error instanceof Error ? error.message : error),
+              })
+            }
+          }
           state.grants[agentId] = next
           save()
-          return commandResult({ hosts: await hostViews(), grants: next })
+          return commandResult({ hosts: await hostViews(), grants: next, started, failures })
         }
         if (op === 'status') {
           const ids = Array.isArray(payload.ids) ? payload.ids.filter((id) => typeof id === 'string') : undefined
@@ -968,8 +987,90 @@ export function apply(ctx) {
       } catch (error) {
         return { kind: 'error', text: String(error instanceof Error ? error.message : error) }
       }
+  }
+
+  // --- HTTP bridge: the Client UI's data channel ---------------------------
+  // Using the plugin's own route keeps UI calls out of the session log; the
+  // command bridge used to append an invisible command row on every click.
+  function isLoopbackRequest(request) {
+    const address = request?.socket?.remoteAddress
+    if (address !== undefined && address !== null && address !== '127.0.0.1' && address !== '::1' && address !== '::ffff:127.0.0.1') {
+      return false
+    }
+    const host = String(request?.headers?.host ?? '')
+    if (host === '') return true
+    try {
+      const hostname = new URL('http://' + host).hostname
+      return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]' || hostname === '::1'
+    } catch {
+      return false
+    }
+  }
+
+  function readJsonBody(request, limit) {
+    return new Promise((resolve, reject) => {
+      const chunks = []
+      let size = 0
+      let settled = false
+      const fail = (error) => {
+        if (settled) return
+        settled = true
+        reject(error)
+      }
+      request.on('data', (chunk) => {
+        if (settled) return
+        size += chunk.length
+        if (size > limit) {
+          fail(new Error('内容过大'))
+          if (typeof request.resume === 'function') request.resume()
+          return
+        }
+        chunks.push(chunk)
+      })
+      request.on('end', () => {
+        if (settled) return
+        settled = true
+        resolve(Buffer.concat(chunks).toString('utf8'))
+      })
+      request.on('error', fail)
+      request.on('aborted', () => fail(new Error('请求已中断')))
+    })
+  }
+
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: API_PATH,
+    handler: async (request, response) => {
+      const send = (status, payload) => {
+        if (response.headersSent || response.writableEnded) return
+        response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+        response.end(JSON.stringify(payload))
+      }
+      try {
+        if (!isLoopbackRequest(request)) return send(403, { ok: false, error: '仅允许本机访问' })
+        if (String(request.method ?? 'GET').toUpperCase() !== 'POST') return send(200, { ok: false, error: '只接受 POST 请求' })
+        const raw = await readJsonBody(request, 2 * 1024 * 1024)
+        let payload
+        try {
+          payload = raw === '' ? {} : JSON.parse(raw)
+        } catch {
+          return send(200, { ok: false, error: '请求不是合法 JSON' })
+        }
+        const sessionId = String(payload.sessionId ?? '')
+        if (sessionId === '') return send(200, { ok: false, error: '缺少 sessionId' })
+        const agents = ctx.get('agents')
+        const agent = (agents !== undefined && typeof agents.get === 'function' ? agents.get(sessionId) : undefined) ?? { id: sessionId }
+        const outcome = await handleInvocation({ rawInput: JSON.stringify(payload), agent })
+        if (outcome !== undefined && outcome.kind === 'error') {
+          return send(200, { ok: false, error: String(outcome.text ?? '操作失败') })
+        }
+        const data = outcome !== undefined && typeof outcome.text === 'string' && outcome.text !== '' ? JSON.parse(outcome.text) : {}
+        return send(200, { ok: true, ...data })
+      } catch (error) {
+        return send(200, { ok: false, error: String(error instanceof Error ? error.message : error) })
+      }
     },
-  })
+  }))
 
   // --- tools ---------------------------------------------------------------
   ctx.tools.register(tool(

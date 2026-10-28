@@ -10,7 +10,6 @@ window.__ModuleLoader__.load({
     const FILES_ID = '@local/dsh-ssh-manager/files'
     const PANEL_ID = 'ssh-resources'
     const NS = 'sshManager'
-    const CMD = '/ssh-manager '
 
     const zh = {
       panel: '远程主机',
@@ -92,7 +91,7 @@ window.__ModuleLoader__.load({
       wslTitle: '添加本地 WSL',
       wslHint: '本机 WSL 发行版会作为「本地主机」接入，可像远程主机一样授权给会话并浏览文件。',
       wslName: '发行版',
-      wslState: '状态',
+      wslManage: 'WSL 管理',
       wslRunning: '运行中',
       wslStopped: '已停止',
       wslUnknown: '状态未知',
@@ -108,6 +107,8 @@ window.__ModuleLoader__.load({
       wslSetDefault: '设为默认',
       wslStopConfirm: '终止会停止该发行版内所有正在运行的进程，确定继续？',
       wslControlDone: '{action} 完成：{name}',
+      wslGrantStarted: '已授权并启动 {name}',
+      wslGrantStartFailed: '已授权，但启动 {name} 失败：{message}',
       kindWsl: 'WSL',
       kindSsh: 'SSH',
       test: '测试连接',
@@ -194,7 +195,7 @@ window.__ModuleLoader__.load({
       wslTitle: 'Add a local WSL distribution',
       wslHint: 'Local WSL distributions join this list as local hosts, so they can be authorized and browsed like SSH hosts.',
       wslName: 'Distribution',
-      wslState: 'State',
+      wslManage: 'WSL control',
       wslRunning: 'Running',
       wslStopped: 'Stopped',
       wslUnknown: 'Unknown',
@@ -210,6 +211,8 @@ window.__ModuleLoader__.load({
       wslSetDefault: 'Set default',
       wslStopConfirm: 'Stopping terminates every running process in this distribution. Continue?',
       wslControlDone: '{action} done: {name}',
+      wslGrantStarted: 'Authorized and started {name}',
+      wslGrantStartFailed: 'Authorized, but starting {name} failed: {message}',
       kindWsl: 'WSL',
       kindSsh: 'SSH',
       test: 'Test connection',
@@ -330,15 +333,8 @@ window.__ModuleLoader__.load({
 @keyframes sshm-pop{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 .sshm-pill-kind{font-weight:600;letter-spacing:.04em}
 .sshm-pill-wsl{color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent)}
-.sshm-kind-line{display:flex;align-items:center;gap:6px;font-size:11.5px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sshm-input-readonly{display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2)}
-.sshm-wsl-list{border:0.5px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}
-.sshm-wsl-row{display:flex;align-items:center;gap:10px;padding:9px 11px;border-bottom:0.5px solid var(--dsw-alias-border-l1)}
-.sshm-wsl-row:last-child{border-bottom:none}
-.sshm-wsl-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}
-.sshm-wsl-name{display:flex;align-items:center;gap:6px;min-width:0;font-size:12.5px;font-weight:600;line-height:17px}
-.sshm-wsl-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.sshm-wsl-empty{padding:18px 12px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+.sshm-row-actions-always{opacity:1}
+.sshm-inline-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 @keyframes sshm-pulse{0%,100%{opacity:.55}50%{opacity:.9}}
 .sshm-abs{position:relative}
 `
@@ -424,11 +420,6 @@ window.__ModuleLoader__.load({
       return t('wslUnknown')
     }
 
-    function commandRemote(ctx) {
-      const remote = ctx.get ? ctx.get('remote') : undefined
-      return remote && remote.commands ? remote.commands : undefined
-    }
-
     function credentialRemote(ctx) {
       const remote = ctx.get ? ctx.get('remote') : undefined
       return remote && remote.credentials ? remote.credentials : undefined
@@ -447,21 +438,28 @@ window.__ModuleLoader__.load({
       return result
     }
 
+    // The panel talks to the Host over the plugin's own HTTP route: a session
+    // command would append an (invisible) command row to the transcript.
     async function callHost(ctx, sessionId, payload, signal) {
-      const commands = commandRemote(ctx)
-      if (commands === undefined || typeof commands.execute !== 'function') throw new Error('commands Remote is unavailable')
       if (!sessionId) throw new Error('需要一个会话来执行命令')
-      const result = await commands.execute(sessionId, CMD + JSON.stringify(payload), [], signal)
-      let execution = result
-      if (result && typeof result === 'object' && Object.prototype.hasOwnProperty.call(result, 'ok')) {
-        if (!result.ok) throw new Error(result.error && result.error.message ? result.error.message : 'command failed')
-        execution = result.value
+      const response = await fetch('/ssh-manager/api', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...payload, sessionId }),
+        signal,
+      })
+      let data
+      try {
+        data = await response.json()
+      } catch {
+        throw new Error('HTTP ' + response.status)
       }
-      if (!execution) throw new Error('ssh-manager command did not run')
-      const outcome = execution.result
-      if (outcome && outcome.kind === 'error') throw new Error(outcome.text || 'ssh-manager failed')
-      const text = outcome && outcome.text
-      return text ? JSON.parse(text) : null
+      if (!data || data.ok !== true) {
+        throw new Error(data && typeof data.error === 'string' ? data.error : 'ssh-manager 请求失败')
+      }
+      const result = { ...data }
+      delete result.ok
+      return result
     }
 
     function pickSessionId(useSessions) {
@@ -561,13 +559,13 @@ window.__ModuleLoader__.load({
       return h('button', { type: 'button', className: cls.join(' '), title, disabled, onClick }, icon || null, children || null)
     }
 
-    function StatusPill({ online, t }) {
+    function StatusPill({ online, text, t }) {
       if (online === undefined) {
         return h('span', { className: 'sshm-pill sshm-pill-off' }, h('span', { className: 'sshm-dot' }), t('unknown'))
       }
       return h('span', { className: 'sshm-pill ' + (online ? 'sshm-pill-on' : 'sshm-pill-off') },
         h('span', { className: 'sshm-dot' }),
-        online ? t('online') : t('offline'))
+        text !== undefined ? text : online ? t('online') : t('offline'))
     }
 
     // `kind` badge shared by host cards, the WSL add dialog and the session picker.
@@ -575,14 +573,6 @@ window.__ModuleLoader__.load({
       const wsl = kind === 'wsl'
       return h('span', { className: 'sshm-pill sshm-pill-kind' + (wsl ? ' sshm-pill-wsl' : '') },
         wsl ? t('kindWsl') : t('kindSsh'))
-    }
-
-    // Read-only sibling of Field, used for the fixed WSL distribution name.
-    function ReadOnlyField({ label, value }) {
-      const text = value === undefined || value === null || value === '' ? '—' : String(value)
-      return h('div', { className: 'sshm-field' },
-        h('span', { className: 'sshm-label' }, label),
-        h('div', { className: 'sshm-input sshm-input-readonly', title: text }, text))
     }
 
     function Toast({ toast, onDone }) {
@@ -612,19 +602,29 @@ window.__ModuleLoader__.load({
           h('div', { className: 'sshm-modal-foot' }, footer || null)))
     }
 
-    function Field({ label, value, onChange, type, hint, placeholder, full, autoFocus }) {
+    function Field({ label, value, onChange, type, hint, placeholder, full, autoFocus, readOnly }) {
       return h('label', { className: 'sshm-field' + (full ? ' sshm-field-full' : '') },
         h('span', { className: 'sshm-label' }, label),
-        h('input', { className: 'sshm-input', type: type || 'text', value: value === undefined ? '' : value, placeholder, autoFocus, onChange: (event) => onChange(event.target.value) }),
+        h('input', {
+          className: 'sshm-input',
+          type: type || 'text',
+          value: value === undefined ? '' : value,
+          placeholder,
+          autoFocus,
+          readOnly: readOnly === true,
+          onChange: readOnly === true ? undefined : (event) => onChange(event.target.value),
+        }),
         hint ? h('span', { className: 'sshm-hint' }, hint) : null)
     }
 
     // --- host form ----------------------------------------------------------
     // WSL hosts keep `host` as the (fixed) distribution name, so the form drops
-    // the SSH-only fields and shows that name read-only instead.
-    function HostEditor({ t, host, busy, error, onCancel, onSave }) {
+    // the SSH-only fields, shows that name read-only, and hosts the start/stop/
+    // set-default actions that would otherwise crowd the host card.
+    function HostEditor({ t, host, busy, error, controlling, onWslControl, onCancel, onSave }) {
       const editing = host !== undefined && host !== null
       const isWsl = editing && hostKind(host) === 'wsl'
+      const wslBusy = busy === true || controlling === true
       const [draft, setDraft] = React.useState({
         id: editing ? host.id : undefined,
         kind: isWsl ? 'wsl' : 'ssh',
@@ -640,6 +640,14 @@ window.__ModuleLoader__.load({
       })
       const set = (key) => (value) => setDraft((current) => ({ ...current, [key]: value }))
       const hasPassword = !!(editing && !isWsl && host.hasPassword)
+      const runWslControl = (action) => {
+        if (typeof onWslControl !== 'function') return undefined
+        return onWslControl(host, action)
+      }
+      const stopWsl = () => {
+        const ask = typeof window !== 'undefined' && typeof window.confirm === 'function' ? window.confirm(t('wslStopConfirm')) : true
+        return ask ? runWslControl('terminate') : undefined
+      }
       return h(Modal, {
         title: editing ? t('edit') + ' · ' + host.name : t('add'),
         onClose: onCancel,
@@ -652,8 +660,16 @@ window.__ModuleLoader__.load({
           error ? h('div', { className: 'sshm-alert sshm-field-full' }, error) : null,
           h(Field, { label: t('name'), value: draft.name, onChange: set('name'), placeholder: isWsl ? 'Ubuntu' : 'compile' }),
           isWsl
-            ? h(ReadOnlyField, { label: t('wslName'), value: draft.host })
+            ? h(Field, { label: t('wslName'), value: draft.host, readOnly: true })
             : h(Field, { label: t('host'), value: draft.host, onChange: set('host'), placeholder: '192.0.2.10' }),
+          isWsl
+            ? h('div', { className: 'sshm-field sshm-field-full' },
+              h('span', { className: 'sshm-label' }, t('wslManage')),
+              h('div', { className: 'sshm-inline-actions' },
+                h(Button, { key: 'start', variant: 'ghost', icon: Icons.play(14), disabled: wslBusy, onClick: () => runWslControl('start') }, t('wslStart')),
+                h(Button, { key: 'stop', variant: 'ghost', icon: Icons.stop(14), disabled: wslBusy, onClick: stopWsl }, t('wslStop')),
+                h(Button, { key: 'default', variant: 'ghost', icon: Icons.check(14), disabled: wslBusy, onClick: () => runWslControl('default') }, t('wslSetDefault'))))
+            : null,
           isWsl ? null : h(Field, { label: t('user'), value: draft.user, onChange: set('user') }),
           isWsl ? null : h(Field, { label: t('port'), value: draft.port, onChange: set('port'), type: 'number' }),
           isWsl ? null : h(Field, { label: t('root'), value: draft.root, onChange: set('root'), hint: '/ 或 /var/www' }),
@@ -720,30 +736,35 @@ window.__ModuleLoader__.load({
         const added = !!distro.hostId
         const running = distro.state === 'Running'
         const busy = adding === distro.name
-        return h('div', { className: 'sshm-wsl-row', key: distro.name },
-          h('div', { className: 'sshm-wsl-main' },
-            h('div', { className: 'sshm-wsl-name' },
+        return h('div', { className: 'sshm-row', key: distro.name },
+          h('div', { className: 'sshm-glyph' }, Icons.terminal(17)),
+          h('div', { className: 'sshm-row-main' },
+            h('div', { className: 'sshm-row-title' },
               h('span', { className: 'sshm-name' }, distro.name),
+              h(StatusPill, { online: running, text: distroStateText(distro.state, t), t }),
+              distro.version ? h('span', { className: 'sshm-pill' }, interp(t('wslVersion'), { v: distro.version })) : null,
               distro.default ? h('span', { className: 'sshm-pill sshm-pill-wsl' }, t('wslDefault')) : null),
-            h('div', { className: 'sshm-wsl-meta' },
-              h('span', { className: 'sshm-pill ' + (running ? 'sshm-pill-on' : 'sshm-pill-off'), title: t('wslState') },
-                h('span', { className: 'sshm-dot' }),
-                distroStateText(distro.state, t)),
-              distro.version ? h('span', { className: 'sshm-pill' }, interp(t('wslVersion'), { v: distro.version })) : null)),
-          h(Button, {
-            variant: added ? 'ghost' : 'primary',
-            disabled: added || busy || !sessionId,
-            onClick: () => add(distro),
-          }, added ? t('wslAdded') : busy ? t('saving') : t('wslAdd')))
+            h('div', { className: 'sshm-mono' }, 'wsl://' + distro.name)),
+          h('div', { className: 'sshm-row-actions sshm-row-actions-always' },
+            h(Button, {
+              variant: added ? 'ghost' : 'primary',
+              disabled: added || busy || !sessionId,
+              onClick: () => add(distro),
+            }, added ? t('wslAdded') : busy ? t('saving') : t('wslAdd'))))
       })
 
       const listBlock = loading && distros.length === 0
-        ? h('div', { className: 'sshm-wsl-list' }, [0, 1].map((index) => h('div', { className: 'sshm-skeleton', key: index },
-          h('div', { className: 'sshm-sk', style: { width: '22px', height: '22px', borderRadius: '6px' } }),
-          h('div', { className: 'sshm-sk', style: { flex: 1, maxWidth: '180px' } }))))
+        ? h('div', { className: 'sshm-list' }, [0, 1].map((index) => h('div', { className: 'sshm-skeleton', key: index },
+          h('div', { className: 'sshm-sk', style: { width: '34px', height: '34px', borderRadius: '9px' } }),
+          h('div', { style: { flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' } },
+            h('div', { className: 'sshm-sk', style: { width: '140px' } }),
+            h('div', { className: 'sshm-sk', style: { width: '96px', opacity: 0.7 } })))))
         : distros.length === 0
-          ? h('div', { className: 'sshm-wsl-list' }, h('div', { className: 'sshm-wsl-empty' }, t('wslEmpty')))
-          : h('div', { className: 'sshm-wsl-list' }, rows)
+          ? h('div', { className: 'sshm-empty' },
+            h('div', { className: 'sshm-empty-icon' }, Icons.terminal(20)),
+            h('div', { className: 'sshm-empty-title' }, t('wslEmpty')),
+            h('div', { className: 'sshm-empty-text' }, t('wslHint')))
+          : h('div', { className: 'sshm-list' }, rows)
 
       return h(Modal, {
         title: t('wslTitle'),
@@ -788,12 +809,6 @@ window.__ModuleLoader__.load({
         } finally {
           setControlling(null)
         }
-      }
-
-      function stopWsl(host) {
-        const ask = typeof window !== 'undefined' && typeof window.confirm === 'function' ? window.confirm(t('wslStopConfirm')) : true
-        if (!ask) return
-        controlWsl(host, 'terminate')
       }
 
       async function saveHost(draft) {
@@ -872,21 +887,16 @@ window.__ModuleLoader__.load({
           h('div', { className: 'sshm-row-main' },
             h('div', { className: 'sshm-row-title' },
               h('span', { className: 'sshm-name' }, host.name),
+              h(StatusPill, { online: isWsl ? running : statuses[host.id], text: isWsl ? distroStateText(host.state, t) : undefined, t }),
               h(KindPill, { kind, t }),
-              isWsl ? null : h(StatusPill, { online: statuses[host.id], t }),
               !isWsl && host.hasPassword ? h('span', { className: 'sshm-key', title: t('passwordStored') }, Icons.key(13)) : null),
-            isWsl
-              ? h('div', { className: 'sshm-kind-line' },
-                h('span', { className: 'sshm-dot', style: { background: running ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-idle-primary)' } }),
-                t('wslGroup') + ' · ' + distroStateText(host.state, t))
-              : h('div', { className: 'sshm-mono' }, (host.user ? host.user + '@' : '') + host.host + (Number(host.port) && Number(host.port) !== 22 ? ':' + host.port : '')),
+            h('div', { className: 'sshm-mono' }, isWsl
+              ? 'wsl://' + host.host
+              : (host.user ? host.user + '@' : '') + host.host + (Number(host.port) && Number(host.port) !== 22 ? ':' + host.port : '')),
             isWsl
               ? (host.note ? h('div', { className: 'sshm-note' }, host.note) : null)
               : (host.note || host.root ? h('div', { className: 'sshm-note' }, [host.note, host.root ? 'root: ' + host.root : ''].filter(Boolean).join(' · ')) : null)),
           h('div', { className: 'sshm-row-actions' },
-            isWsl ? h(Button, { variant: 'ghost', icon: Icons.play(14), title: t('wslStart'), disabled: busy || controlling === host.id, onClick: () => controlWsl(host, 'start') }) : null,
-            isWsl ? h(Button, { variant: 'ghost', icon: Icons.stop(14), title: t('wslStop'), disabled: busy || controlling === host.id, onClick: () => stopWsl(host) }) : null,
-            isWsl ? h(Button, { variant: 'ghost', icon: Icons.check(14), title: t('wslSetDefault'), disabled: busy || controlling === host.id, onClick: () => controlWsl(host, 'default') }) : null,
             h(Button, { variant: 'ghost', icon: Icons.refresh(14), title: t('test'), onClick: () => testHost(host) }),
             h(Button, { variant: 'ghost', icon: Icons.pencil(14), title: t('edit'), onClick: () => { setEditorError(null); setEditor({ host }) } }),
             h(Button, { variant: 'ghost', icon: Icons.trash(14), title: t('remove'), onClick: () => setConfirm(host) })))
@@ -905,6 +915,8 @@ window.__ModuleLoader__.load({
             host: editor.host,
             busy,
             error: editorError,
+            controlling: !!(editor.host && controlling === editor.host.id),
+            onWslControl: controlWsl,
             onCancel: () => { setEditor(null); setEditorError(null) },
             onSave: saveHost,
           }) : null,
@@ -954,7 +966,14 @@ window.__ModuleLoader__.load({
         else next.add(hostId)
         setBusy(true)
         try {
-          await callHost(ctx, sessionId, { op: 'grants.set', hosts: [...next] }, new AbortController().signal)
+          const result = await callHost(ctx, sessionId, { op: 'grants.set', hosts: [...next] }, new AbortController().signal)
+          const started = result && Array.isArray(result.started) ? result.started : []
+          const failures = result && Array.isArray(result.failures) ? result.failures : []
+          if (started.length > 0) setToast({ ok: true, text: interp(t('wslGrantStarted'), { name: started.join(', ') }) })
+          if (failures.length > 0) {
+            const first = failures[0] || {}
+            setToast({ ok: false, text: interp(t('wslGrantStartFailed'), { name: first.host || '', message: first.message || '' }) })
+          }
           reload()
         } catch (failure) {
           setToast({ ok: false, text: interp(t('failed'), { message: failure && failure.message ? failure.message : String(failure) }) })
@@ -994,10 +1013,15 @@ window.__ModuleLoader__.load({
                 key: host.id,
                 onClick: () => { if (!busy) toggle(host.id) },
               },
-                h('span', { className: 'sshm-dot', style: { background: statuses[host.id] ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-idle-primary)' } }),
                 h('div', { className: 'sshm-host-main' },
-                  h('div', { className: 'sshm-host-name' }, host.name, h(KindPill, { kind, t }), !isWsl && host.hasPassword ? h('span', { className: 'sshm-key' }, Icons.key(12)) : null),
-                  h('div', { className: 'sshm-host-target' }, isWsl ? t('wslGroup') + ' · ' + distroStateText(host.state, t) : (host.user ? host.user + '@' : '') + host.host)),
+                  h('div', { className: 'sshm-host-name' },
+                    host.name,
+                    h(StatusPill, { online: isWsl ? host.state === 'Running' : statuses[host.id], text: isWsl ? distroStateText(host.state, t) : undefined, t }),
+                    h(KindPill, { kind, t }),
+                    !isWsl && host.hasPassword ? h('span', { className: 'sshm-key' }, Icons.key(12)) : null),
+                  h('div', { className: 'sshm-host-target' }, isWsl
+                    ? 'wsl://' + host.host
+                    : (host.user ? host.user + '@' : '') + host.host)),
                 h('span', { className: 'sshm-switch' + (granted.has(host.id) ? ' sshm-switch-on' : ''), role: 'switch', 'aria-checked': granted.has(host.id), title: t('granted') }),
                 h(Button, { variant: 'ghost', icon: Icons.folder(14), title: t('openFilesTitle'), onClick: (event) => { event.stopPropagation(); openHostFiles(ctx, sessionId, host.id); setOpen(false) } }))
             })),

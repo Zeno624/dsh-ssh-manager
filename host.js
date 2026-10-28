@@ -51,13 +51,16 @@ function hostShape(host) {
 }
 
 function normalizeHost(host) {
+  const kind = host.kind === 'wsl' ? 'wsl' : 'ssh'
   const port = Number(host.port)
+  const rawHost = String(host.host ?? '').trim()
   return {
     id: String(host.id),
-    name: typeof host.name === 'string' && host.name.trim() !== '' ? host.name.trim() : String(host.host),
-    host: String(host.host).trim(),
-    user: typeof host.user === 'string' ? host.user.trim() : '',
-    port: Number.isSafeInteger(port) && port > 0 && port < 65536 ? port : 22,
+    kind,
+    name: typeof host.name === 'string' && host.name.trim() !== '' ? host.name.trim() : rawHost,
+    host: rawHost,
+    user: kind === 'wsl' ? '' : typeof host.user === 'string' ? host.user.trim() : '',
+    port: kind === 'wsl' ? 22 : Number.isSafeInteger(port) && port > 0 && port < 65536 ? port : 22,
     group: typeof host.group === 'string' ? host.group.trim() : '',
     note: typeof host.note === 'string' ? host.note.trim() : '',
   }
@@ -90,6 +93,7 @@ function resolveHost(state, sessionId, ref) {
 }
 
 function targetOf(host) {
+  if (host.kind === 'wsl') return `${host.host}（本地 WSL）`
   const login = host.user ? `${host.user}@${host.host}` : host.host
   return host.port === 22 ? login : `${login}:${host.port}`
 }
@@ -283,6 +287,166 @@ export function apply(ctx) {
     }
   }
 
+  // --- local WSL -------------------------------------------------------------
+
+  const distroCache = { at: 0, entries: [] }
+
+  function wslFallback() {
+    const root = process.env.SystemRoot || 'C:\\Windows'
+    const exe = path.join(root, 'System32', 'wsl.exe')
+    return fs.existsSync(exe) ? exe : undefined
+  }
+
+  async function resolveWsl(signal) {
+    try {
+      return await ctx.subprocess.resolveExecutable('wsl', undefined, signal)
+    } catch {
+      const fallback = wslFallback()
+      if (fallback !== undefined) return fallback
+      throw new Error('当前执行环境找不到 wsl.exe（需要 Windows 上的 WSL）')
+    }
+  }
+
+  /** Parse `wsl -l -v` output (WSL_UTF8=1): `* Ubuntu    Stopped         2`. */
+  function parseWslList(text) {
+    const lines = String(text).replace(/\r/g, '').split('\n')
+    const out = []
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed === '' || /^NAME\b/.test(trimmed)) continue
+      const isDefault = trimmed.startsWith('*')
+      const body = isDefault ? trimmed.slice(1).trim() : trimmed
+      const parts = body.split(/\s{2,}/).filter((part) => part !== '')
+      if (parts.length < 2) continue
+      const name = parts[0]
+      const version = Number(parts[2] ?? 0)
+      out.push({
+        name,
+        state: parts[1],
+        version: Number.isFinite(version) ? version : 0,
+        default: isDefault,
+      })
+    }
+    return out
+  }
+
+  async function readWslDistros(signal) {
+    const wsl = await resolveWsl(signal)
+    let handle
+    try {
+      handle = ctx.subprocess.spawn({
+        argv: [wsl, '-l', '-v'],
+        cwd: process.cwd(),
+        stdio: { stdin: 'ignore', stdout: { maxBytes: 256 * 1024 }, stderr: { maxBytes: 64 * 1024 } },
+        graceMs: 5000,
+        signal,
+        env: { WSL_UTF8: '1' },
+      })
+    } catch (error) {
+      throw new Error(`无法启动 wsl.exe：${String(error instanceof Error ? error.message : error)}`)
+    }
+    const outcome = await handle.done
+    const stdout = handle.collected.stdout?.readFrom(0)?.text ?? ''
+    const stderr = handle.collected.stderr?.readFrom(0)?.text ?? ''
+    if (stdout.trim() === '' && stderr.trim() !== '') throw new Error(`读取 WSL 发行版失败：${tail(stderr.trim(), 800)}`)
+    if ((outcome?.exitCode ?? 0) !== 0 && stdout.trim() === '') throw new Error(`读取 WSL 发行版失败（exit=${outcome?.exitCode ?? '?'}）`)
+    return parseWslList(stdout)
+  }
+
+  async function distrosFor(signal, force = false) {
+    const now = Date.now()
+    if (!force && now - distroCache.at < 15000) return distroCache.entries
+    const entries = await readWslDistros(signal)
+    distroCache.at = now
+    distroCache.entries = entries
+    return entries
+  }
+
+  function wslBase(wsl, distro) {
+    return [wsl, '-d', distro, '--cd', '~', '--']
+  }
+
+  /** Run one bash script inside a WSL distribution (UTF-8 output, home cwd). */
+  async function runWsl(host, script, signal, options = {}) {
+    const wsl = await resolveWsl(signal)
+    const argv = [...wslBase(wsl, host.host), 'bash', '-lc', script]
+    let handle
+    try {
+      handle = ctx.subprocess.spawn({
+        argv,
+        cwd: process.cwd(),
+        stdio: {
+          stdin: options.stdin === undefined ? 'ignore' : { data: options.stdin },
+          stdout: { maxBytes: options.maxBytes ?? 4 * 1024 * 1024 },
+          stderr: { maxBytes: 256 * 1024 },
+        },
+        graceMs: options.graceMs ?? 2000,
+        signal,
+        env: { WSL_UTF8: '1' },
+      })
+    } catch (error) {
+      throw new Error(`无法启动 wsl.exe：${String(error instanceof Error ? error.message : error)}`)
+    }
+    let outcome
+    try {
+      outcome = await handle.done
+    } catch (error) {
+      throw new Error(`WSL 执行失败：${String(error instanceof Error ? error.message : error)}`)
+    }
+    return {
+      code: outcome?.exitCode ?? null,
+      stdout: handle.collected.stdout?.readFrom(0)?.text ?? '',
+      stderr: handle.collected.stderr?.readFrom(0)?.text ?? '',
+    }
+  }
+
+  /** start / terminate / shutdown / set-default; returns fresh distro list. */
+  async function controlDistro(action, distro, signal) {
+    if (action !== 'shutdown' && (distro === undefined || distro === '')) throw new Error(`${action} 需要 distro`)
+    const wsl = await resolveWsl(signal)
+    const args = action === 'start'
+      ? [...wslBase(wsl, distro), 'bash', '-lc', 'true']
+      : action === 'terminate'
+        ? [wsl, '--terminate', distro]
+        : action === 'shutdown'
+          ? [wsl, '--shutdown']
+          : action === 'default'
+            ? [wsl, '--set-default', distro]
+            : undefined
+    if (args === undefined) throw new Error(`未知操作：${action}`)
+    let handle
+    try {
+      handle = ctx.subprocess.spawn({
+        argv: args,
+        cwd: process.cwd(),
+        stdio: { stdin: 'ignore', stdout: { maxBytes: 64 * 1024 }, stderr: { maxBytes: 64 * 1024 } },
+        graceMs: action === 'start' ? 120000 : 30000,
+        signal,
+        env: { WSL_UTF8: '1' },
+      })
+    } catch (error) {
+      throw new Error(`无法启动 wsl.exe：${String(error instanceof Error ? error.message : error)}`)
+    }
+    const outcome = await handle.done
+    const stderr = handle.collected.stderr?.readFrom(0)?.text ?? ''
+    if ((outcome?.exitCode ?? 1) !== 0) {
+      throw new Error(`WSL ${action} 失败：${tail(stderr.trim() || `exit=${outcome?.exitCode ?? '?'}`, 800)}`)
+    }
+    return distrosFor(signal, true)
+  }
+
+  function distroViews(distros) {
+    const added = new Map(
+      state.hosts
+        .filter((host) => host.kind === 'wsl' && typeof host.host === 'string')
+        .map((host) => [host.host, host.id]),
+    )
+    return distros.map((distro) => ({
+      ...distro,
+      hostId: added.get(distro.name),
+    }))
+  }
+
   function sshArgs(host, hasPassword) {
     const args = hasPassword
       ? ['-o', 'PreferredAuthentications=publickey,password,keyboard-interactive', '-o', 'NumberOfPasswordPrompts=1', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ServerAliveInterval=30']
@@ -315,8 +479,9 @@ export function apply(ctx) {
     return host.user ? `${host.user}@${host.host}` : host.host
   }
 
-  /** Run one non-interactive ssh command and collect stdout/stderr/exit code. */
+  /** Run one non-interactive command and collect stdout/stderr/exit code. */
   async function runRemote(host, script, signal) {
+    if (host.kind === 'wsl') return runWsl(host, script, signal)
     const ssh = await resolveSsh(signal)
     const password = await getPassword(host)
     const argv = [ssh, ...sshArgs(host, password !== undefined), loginOf(host), script]
@@ -354,6 +519,13 @@ export function apply(ctx) {
     const cached = statusCache.get(host.id)
     const now = Date.now()
     if (!force && cached !== undefined && now - cached.at < 30000) return cached.online
+    if (host.kind === 'wsl') {
+      const entries = await distrosFor(undefined, force).catch(() => [])
+      const entry = entries.find((item) => item.name === host.host)
+      const online = entry !== undefined && entry.state === 'Running'
+      statusCache.set(host.id, { at: now, online })
+      return online
+    }
     const online = await new Promise((resolve) => {
       const socket = net.connect({ host: host.host, port: host.port })
       let settled = false
@@ -410,10 +582,10 @@ export function apply(ctx) {
   async function statRemote(host, remotePath, signal) {
     const p = safeRemotePath(remotePath)
     if (p === undefined) throw new Error('非法路径')
-    const script = `stat -c '%F\\0%s\\0%Y\\0%a\\0%U\\0%G' -- ${shellQuote(p)} 2>/dev/null || echo __DSH_MISSING__`
+    const script = `stat -c '%F|%s|%Y|%a|%U|%G' -- ${shellQuote(p)} 2>/dev/null || echo __DSH_MISSING__`
     const result = await runRemote(host, script, signal)
     if (result.stdout.includes('__DSH_MISSING__') || result.stdout.trim() === '') throw new Error(`远程路径不存在：${p}`)
-    const fields = result.stdout.split('\0')
+    const fields = result.stdout.trim().split('|')
     return {
       path: p,
       kind: fields[0],
@@ -474,6 +646,17 @@ export function apply(ctx) {
     const encoded = bytes.toString('base64')
     const remoteDir = path.posix.dirname(target)
     const script = `mkdir -p -- ${shellQuote(remoteDir)} && base64 -d > ${shellQuote(target)} && echo __DSH_OK__`
+    if (host.kind === 'wsl') {
+      const result = await runWsl(host, script, signal, {
+        stdin: encoded,
+        maxBytes: 256 * 1024,
+        graceMs: 30000,
+      })
+      if (!result.stdout.includes('__DSH_OK__')) {
+        throw new Error(`上传失败：${tail(result.stderr.trim(), 1000) || '远端命令未确认'}`)
+      }
+      return { remotePath: target, localPath: localFile, bytes: bytes.length }
+    }
     const password = await getPassword(host)
     const ssh = await resolveSsh(signal)
     const argv = [ssh, ...sshArgs(host, password !== undefined), loginOf(host), script]
@@ -505,11 +688,19 @@ export function apply(ctx) {
       if (!existing.exited) return existing
       sessions.get(agent.id)?.delete(host.id)
     }
-    const ssh = await resolveSsh(signal)
     const cwd = process.cwd()
-    const password = await getPassword(host)
-    const argv = [ssh, '-tt', ...sshArgs(host, password !== undefined)]
-    argv.push(host.user ? `${host.user}@${host.host}` : host.host)
+    let argv
+    let env
+    if (host.kind === 'wsl') {
+      argv = [await resolveWsl(signal), '-d', host.host, '--cd', '~']
+      env = { WSL_UTF8: '1' }
+    } else {
+      const ssh = await resolveSsh(signal)
+      const password = await getPassword(host)
+      argv = [ssh, '-tt', ...sshArgs(host, password !== undefined)]
+      argv.push(host.user ? `${host.user}@${host.host}` : host.host)
+      env = password === undefined ? undefined : askpassEnv(password)
+    }
     const handle = await ctx.subprocess.spawnTerminal({
       argv,
       cwd,
@@ -519,11 +710,11 @@ export function apply(ctx) {
       shellActivity: true,
       graceMs: 2000,
       signal,
-      ...(password === undefined ? {} : { env: askpassEnv(password) }),
+      ...(env === undefined ? {} : { env }),
     })
     counter += 1
     const session = {
-      id: `ssh-${counter}`,
+      id: `${host.kind === 'wsl' ? 'wsl' : 'ssh'}-${counter}`,
       agent: agent.id,
       host,
       handle,
@@ -600,11 +791,21 @@ export function apply(ctx) {
   }
 
   async function hostViews() {
-    return Promise.all(state.hosts.map(async (host) => ({
-      ...host,
-      target: targetOf(host),
-      hasPassword: (await getPassword(host)) !== undefined,
-    })))
+    const needsDistros = state.hosts.some((host) => host.kind === 'wsl')
+    const distros = needsDistros ? await distrosFor(undefined, false).catch(() => []) : []
+    return Promise.all(state.hosts.map(async (host) => {
+      const view = {
+        ...host,
+        target: targetOf(host),
+        hasPassword: host.kind === 'wsl' ? false : (await getPassword(host)) !== undefined,
+      }
+      if (host.kind === 'wsl') {
+        const entry = distros.find((item) => item.name === host.host)
+        view.state = entry === undefined ? 'Unknown' : entry.state
+        view.online = entry !== undefined && entry.state === 'Running'
+      }
+      return view
+    }))
   }
 
   // --- commands: the Client UI's data channel -------------------------------
@@ -639,10 +840,25 @@ export function apply(ctx) {
             sessions: listForAgent(invocation.agent),
           })
         }
+        if (op === 'wsl.discover') {
+          const distros = await distrosFor(invocation.signal, true)
+          return commandResult({ distros: distroViews(distros) })
+        }
+        if (op === 'wsl.control') {
+          const action = String(payload.action ?? '')
+          const distro = payload.distro === undefined || payload.distro === null ? undefined : String(payload.distro)
+          const distros = await controlDistro(action, distro, invocation.signal)
+          return commandResult({
+            distros: distroViews(distros),
+            hosts: await hostViews(),
+            grants: grantsOf(state, agentId),
+          })
+        }
         if (op === 'host.upsert') {
           const input = payload.host && typeof payload.host === 'object' ? payload.host : {}
           const host = normalizeHost({
             id: typeof input.id === 'string' && input.id !== '' ? input.id : `h-${Date.now().toString(36)}`,
+            kind: input.kind,
             name: input.name,
             host: String(input.host ?? ''),
             user: input.user,
@@ -650,7 +866,15 @@ export function apply(ctx) {
             group: input.group,
             note: input.note,
           })
-          if (host.host === '') return { kind: 'error', text: '主机地址不能为空' }
+          if (host.host === '') return { kind: 'error', text: host.kind === 'wsl' ? 'WSL 发行版不能为空' : '主机地址不能为空' }
+          if (host.kind === 'wsl') {
+            const duplicate = state.hosts.find((item) => item.id !== host.id && item.kind === 'wsl' && item.host === host.host)
+            if (duplicate !== undefined) return { kind: 'error', text: `发行版 ${host.host} 已经加入主机列表了` }
+            const known = await distrosFor(invocation.signal, true).catch(() => [])
+            if (known.length > 0 && !known.some((item) => item.name === host.host)) {
+              return { kind: 'error', text: `本机没有名为 ${host.host} 的 WSL 发行版` }
+            }
+          }
           const index = state.hosts.findIndex((item) => item.id === host.id)
           if (index >= 0) state.hosts[index] = host
           else state.hosts.push(host)
@@ -750,18 +974,57 @@ export function apply(ctx) {
   // --- tools ---------------------------------------------------------------
   ctx.tools.register(tool(
     'ssh_hosts',
-    'List the remote SSH hosts the user has authorized for this session, with connection state. Call this before using other ssh tools.',
+    'List the hosts the user has authorized for this session (remote SSH or local WSL), with connection state. Call this before using other host tools.',
     {},
     [],
     async (_args, _exec, agent) => {
       const hosts = allowedHosts(agent)
       if (hosts.length === 0) {
-        return '本会话尚无已授权的 SSH 主机。请让用户在会话右侧栏的 SSH 卡片，或输入框权限栏旁的 SSH 选择器中勾选主机。'
+        return '本会话尚无已授权的主机（SSH 或本地 WSL）。请让用户在会话右侧栏的 SSH 卡片，或输入框权限栏旁的 SSH 选择器中勾选主机。'
       }
       const rows = hosts.map((host) => `- ${host.id}: ${describeHost(host)}`)
       const active = listForAgent(agent)
       const running = active.length === 0 ? '' : '\n\n已打开的会话:\n' + active.map((item) => `- ${item.session}: ${item.name} (${item.target}) ${item.state}`).join('\n')
       return '已授权主机:\n' + rows.join('\n') + running
+    },
+  ))
+
+  ctx.tools.register(tool(
+    'wsl_list',
+    'List the local WSL distributions on this Windows machine, with running state, version, default flag, and whether each one is already added to the host list.',
+    {},
+    [],
+    async (_args, exec) => {
+      const distros = await distrosFor(exec.signal, true)
+      if (distros.length === 0) return '本机没有已注册的 WSL 发行版。'
+      const added = new Map(
+        state.hosts.filter((host) => host.kind === 'wsl').map((host) => [host.host, host.id]),
+      )
+      return distros
+        .map((distro) => {
+          const flags = [distro.default ? '默认' : '', added.has(distro.name) ? `已加入主机 ${added.get(distro.name)}` : '未加入主机']
+            .filter(Boolean)
+            .join('，')
+          return `- ${distro.name}: ${distro.state}（WSL ${distro.version}）${flags ? ' · ' + flags : ''}`
+        })
+        .join('\n')
+    },
+  ))
+
+  ctx.tools.register(tool(
+    'wsl_control',
+    'Manage a local WSL distribution: start it, terminate it, set it as the default distribution, or shut down all of WSL.',
+    {
+      action: { type: 'string', enum: ['start', 'terminate', 'shutdown', 'default'], description: 'Operation to perform.' },
+      distro: { type: 'string', description: 'Distribution name from wsl_list (not needed for shutdown).' },
+    },
+    ['action'],
+    async (args, exec) => {
+      const action = String(args.action ?? '')
+      const distro = args.distro === undefined ? undefined : String(args.distro)
+      const distros = await controlDistro(action, distro, exec.signal)
+      const rows = distros.map((item) => `- ${item.name}: ${item.state}${item.default ? '（默认）' : ''}`).join('\n')
+      return `WSL ${action}${distro ? ' ' + distro : ''} 完成。\n${rows}`
     },
   ))
 

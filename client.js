@@ -88,6 +88,30 @@ window.__ModuleLoader__.load({
       dir: '目录',
       actionFailed: '操作失败：{message}',
       goAuthorize: '去会话授权',
+      addWsl: '添加本地 WSL',
+      wslTitle: '添加本地 WSL',
+      wslHint: '本机 WSL 发行版会作为「本地主机」接入，可像远程主机一样授权给会话并浏览文件。',
+      wslName: '发行版',
+      wslState: '状态',
+      wslRunning: '运行中',
+      wslStopped: '已停止',
+      wslUnknown: '状态未知',
+      wslAdded: '已添加',
+      wslAdd: '添加',
+      wslRefresh: '刷新',
+      wslDefault: '默认',
+      wslVersion: 'WSL {v}',
+      wslEmpty: '没有检测到可用的 WSL 发行版',
+      wslGroup: '本地 WSL',
+      wslStart: '启动',
+      wslStop: '终止',
+      wslSetDefault: '设为默认',
+      wslStopConfirm: '终止会停止该发行版内所有正在运行的进程，确定继续？',
+      wslControlDone: '{action} 完成：{name}',
+      kindWsl: 'WSL',
+      kindSsh: 'SSH',
+      test: '测试连接',
+      granted: '已授权',
     }
 
     const en = {
@@ -166,6 +190,30 @@ window.__ModuleLoader__.load({
       dir: 'Directory',
       actionFailed: 'Failed: {message}',
       goAuthorize: 'Authorize a host',
+      addWsl: 'Add local WSL',
+      wslTitle: 'Add a local WSL distribution',
+      wslHint: 'Local WSL distributions join this list as local hosts, so they can be authorized and browsed like SSH hosts.',
+      wslName: 'Distribution',
+      wslState: 'State',
+      wslRunning: 'Running',
+      wslStopped: 'Stopped',
+      wslUnknown: 'Unknown',
+      wslAdded: 'Added',
+      wslAdd: 'Add',
+      wslRefresh: 'Refresh',
+      wslDefault: 'Default',
+      wslVersion: 'WSL {v}',
+      wslEmpty: 'No WSL distribution detected',
+      wslGroup: 'Local WSL',
+      wslStart: 'Start',
+      wslStop: 'Stop',
+      wslSetDefault: 'Set default',
+      wslStopConfirm: 'Stopping terminates every running process in this distribution. Continue?',
+      wslControlDone: '{action} done: {name}',
+      kindWsl: 'WSL',
+      kindSsh: 'SSH',
+      test: 'Test connection',
+      granted: 'Authorized',
     }
 
     const CSS = `
@@ -280,6 +328,17 @@ window.__ModuleLoader__.load({
 .sshm-toast-error{color:var(--dsw-alias-state-error-primary)}
 @keyframes sshm-fade{from{opacity:0}to{opacity:1}}
 @keyframes sshm-pop{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.sshm-pill-kind{font-weight:600;letter-spacing:.04em}
+.sshm-pill-wsl{color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent)}
+.sshm-kind-line{display:flex;align-items:center;gap:6px;font-size:11.5px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sshm-input-readonly{display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2)}
+.sshm-wsl-list{border:0.5px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}
+.sshm-wsl-row{display:flex;align-items:center;gap:10px;padding:9px 11px;border-bottom:0.5px solid var(--dsw-alias-border-l1)}
+.sshm-wsl-row:last-child{border-bottom:none}
+.sshm-wsl-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}
+.sshm-wsl-name{display:flex;align-items:center;gap:6px;min-width:0;font-size:12.5px;font-weight:600;line-height:17px}
+.sshm-wsl-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.sshm-wsl-empty{padding:18px 12px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
 @keyframes sshm-pulse{0%,100%{opacity:.55}50%{opacity:.9}}
 .sshm-abs{position:relative}
 `
@@ -316,6 +375,9 @@ window.__ModuleLoader__.load({
       upload: (s) => svg([h('path', { key: 'a', d: 'M12 20V9' }), h('path', { key: 'b', d: 'M7 13l5-5 5 5' }), h('path', { key: 'c', d: 'M5 4h14' })], s),
       plusFolder: (s) => svg([h('path', { key: 'a', d: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z' }), h('path', { key: 'b', d: 'M12 11v6M9 14h6' })], s),
       server: (s) => svg([h('rect', { key: 'a', x: 3, y: 4, width: 18, height: 7, rx: 2 }), h('rect', { key: 'b', x: 3, y: 13, width: 18, height: 7, rx: 2 }), h('path', { key: 'c', d: 'M7 7.5h.01M7 16.5h.01' })], s),
+      terminal: (s) => svg([h('rect', { key: 'a', x: 3, y: 4, width: 18, height: 13, rx: 2 }), h('path', { key: 'b', d: 'M7 9l2.5 2.5L7 14' }), h('path', { key: 'c', d: 'M12.5 14h4.5' }), h('path', { key: 'd', d: 'M9 20h6' })], s),
+      play: (s) => svg([h('path', { key: 'a', d: 'M8 5l11 7-11 7V5z' })], s),
+      stop: (s) => svg([h('rect', { key: 'a', x: 6, y: 6, width: 12, height: 12, rx: 2 })], s),
       chevron: (s) => svg([h('path', { key: 'a', d: 'M9 6l6 6-6 6' })], s),
     }
 
@@ -349,6 +411,17 @@ window.__ModuleLoader__.load({
 
     function passwordRefFor(hostId) {
       return 'DSH_SSH_PASSWORD_' + String(hostId).toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+    }
+
+    // Hosts written before WSL support have no `kind`; they are plain SSH hosts.
+    function hostKind(host) {
+      return host && host.kind === 'wsl' ? 'wsl' : 'ssh'
+    }
+
+    function distroStateText(state, t) {
+      if (state === 'Running') return t('wslRunning')
+      if (state === 'Stopped') return t('wslStopped')
+      return t('wslUnknown')
     }
 
     function commandRemote(ctx) {
@@ -497,6 +570,21 @@ window.__ModuleLoader__.load({
         online ? t('online') : t('offline'))
     }
 
+    // `kind` badge shared by host cards, the WSL add dialog and the session picker.
+    function KindPill({ kind, t }) {
+      const wsl = kind === 'wsl'
+      return h('span', { className: 'sshm-pill sshm-pill-kind' + (wsl ? ' sshm-pill-wsl' : '') },
+        wsl ? t('kindWsl') : t('kindSsh'))
+    }
+
+    // Read-only sibling of Field, used for the fixed WSL distribution name.
+    function ReadOnlyField({ label, value }) {
+      const text = value === undefined || value === null || value === '' ? '—' : String(value)
+      return h('div', { className: 'sshm-field' },
+        h('span', { className: 'sshm-label' }, label),
+        h('div', { className: 'sshm-input sshm-input-readonly', title: text }, text))
+    }
+
     function Toast({ toast, onDone }) {
       React.useEffect(() => {
         if (!toast) return undefined
@@ -532,10 +620,14 @@ window.__ModuleLoader__.load({
     }
 
     // --- host form ----------------------------------------------------------
+    // WSL hosts keep `host` as the (fixed) distribution name, so the form drops
+    // the SSH-only fields and shows that name read-only instead.
     function HostEditor({ t, host, busy, error, onCancel, onSave }) {
       const editing = host !== undefined && host !== null
+      const isWsl = editing && hostKind(host) === 'wsl'
       const [draft, setDraft] = React.useState({
         id: editing ? host.id : undefined,
+        kind: isWsl ? 'wsl' : 'ssh',
         name: editing ? host.name : '',
         host: editing ? host.host : '',
         user: editing ? host.user || 'root' : 'root',
@@ -547,7 +639,7 @@ window.__ModuleLoader__.load({
         clearPassword: false,
       })
       const set = (key) => (value) => setDraft((current) => ({ ...current, [key]: value }))
-      const hasPassword = !!(editing && host.hasPassword)
+      const hasPassword = !!(editing && !isWsl && host.hasPassword)
       return h(Modal, {
         title: editing ? t('edit') + ' · ' + host.name : t('add'),
         onClose: onCancel,
@@ -558,19 +650,113 @@ window.__ModuleLoader__.load({
       },
         h('div', { className: 'sshm-modal-body' },
           error ? h('div', { className: 'sshm-alert sshm-field-full' }, error) : null,
-          h(Field, { label: t('name'), value: draft.name, onChange: set('name'), placeholder: 'compile' }),
-          h(Field, { label: t('host'), value: draft.host, onChange: set('host'), placeholder: '192.0.2.10' }),
-          h(Field, { label: t('user'), value: draft.user, onChange: set('user') }),
-          h(Field, { label: t('port'), value: draft.port, onChange: set('port'), type: 'number' }),
-          h(Field, { label: t('root'), value: draft.root, onChange: set('root'), hint: '/ 或 /var/www' }),
-          h(Field, { label: t('group'), value: draft.group, onChange: set('group') }),
+          h(Field, { label: t('name'), value: draft.name, onChange: set('name'), placeholder: isWsl ? 'Ubuntu' : 'compile' }),
+          isWsl
+            ? h(ReadOnlyField, { label: t('wslName'), value: draft.host })
+            : h(Field, { label: t('host'), value: draft.host, onChange: set('host'), placeholder: '192.0.2.10' }),
+          isWsl ? null : h(Field, { label: t('user'), value: draft.user, onChange: set('user') }),
+          isWsl ? null : h(Field, { label: t('port'), value: draft.port, onChange: set('port'), type: 'number' }),
+          isWsl ? null : h(Field, { label: t('root'), value: draft.root, onChange: set('root'), hint: '/ 或 /var/www' }),
+          h(Field, { label: t('group'), value: draft.group, onChange: set('group'), full: isWsl }),
           h(Field, { label: t('note'), value: draft.note, onChange: set('note'), placeholder: t('notePlaceholder'), full: true }),
-          h(Field, { label: t('password'), value: draft.password, onChange: set('password'), type: 'password', hint: hasPassword ? t('passwordSet') : t('passwordUnset'), full: true }),
-          hasPassword
+          isWsl ? null : h(Field, { label: t('password'), value: draft.password, onChange: set('password'), type: 'password', hint: hasPassword ? t('passwordSet') : t('passwordUnset'), full: true }),
+          !isWsl && hasPassword
             ? h('label', { className: 'sshm-check sshm-field-full' },
               h('input', { type: 'checkbox', checked: draft.clearPassword === true, onChange: (event) => setDraft((current) => ({ ...current, clearPassword: event.target.checked, password: event.target.checked ? '' : current.password })) }),
               t('clearPassword'))
             : null))
+    }
+
+    // --- local WSL picker ---------------------------------------------------
+    // Reads the distro list from the Host, then upserts the picked ones as
+    // `kind: 'wsl'` hosts. The modal stays open so several can be added in a row.
+    function WslAddModal({ ctx, sessionId, t, onClose, onAdded, notify }) {
+      const [distros, setDistros] = React.useState([])
+      const [loading, setLoading] = React.useState(true)
+      const [error, setError] = React.useState(null)
+      const [adding, setAdding] = React.useState(null)
+      const [tick, setTick] = React.useState(0)
+
+      React.useEffect(() => {
+        if (!sessionId) {
+          setLoading(false)
+          return undefined
+        }
+        const controller = new AbortController()
+        setLoading(true)
+        ;(async () => {
+          try {
+            const result = await callHost(ctx, sessionId, { op: 'wsl.discover' }, controller.signal)
+            if (controller.signal.aborted) return
+            setDistros(result && Array.isArray(result.distros) ? result.distros : [])
+            setError(null)
+          } catch (failure) {
+            if (!controller.signal.aborted) setError(interp(t('failed'), { message: failure && failure.message ? failure.message : String(failure) }))
+          } finally {
+            if (!controller.signal.aborted) setLoading(false)
+          }
+        })()
+        return () => controller.abort()
+      }, [ctx, sessionId, t, tick])
+
+      async function add(distro) {
+        if (!distro || distro.hostId) return
+        setAdding(distro.name)
+        setError(null)
+        try {
+          const host = { name: distro.name, kind: 'wsl', host: distro.name, group: t('wslGroup') }
+          await callHost(ctx, sessionId, { op: 'host.upsert', host }, new AbortController().signal)
+          setTick((value) => value + 1)
+          if (typeof onAdded === 'function') onAdded()
+          if (typeof notify === 'function') notify({ ok: true, text: distro.name + ' · ' + t('wslAdded') })
+        } catch (failure) {
+          setError(interp(t('failed'), { message: failure && failure.message ? failure.message : String(failure) }))
+        } finally {
+          setAdding(null)
+        }
+      }
+
+      const rows = distros.map((distro) => {
+        const added = !!distro.hostId
+        const running = distro.state === 'Running'
+        const busy = adding === distro.name
+        return h('div', { className: 'sshm-wsl-row', key: distro.name },
+          h('div', { className: 'sshm-wsl-main' },
+            h('div', { className: 'sshm-wsl-name' },
+              h('span', { className: 'sshm-name' }, distro.name),
+              distro.default ? h('span', { className: 'sshm-pill sshm-pill-wsl' }, t('wslDefault')) : null),
+            h('div', { className: 'sshm-wsl-meta' },
+              h('span', { className: 'sshm-pill ' + (running ? 'sshm-pill-on' : 'sshm-pill-off'), title: t('wslState') },
+                h('span', { className: 'sshm-dot' }),
+                distroStateText(distro.state, t)),
+              distro.version ? h('span', { className: 'sshm-pill' }, interp(t('wslVersion'), { v: distro.version })) : null)),
+          h(Button, {
+            variant: added ? 'ghost' : 'primary',
+            disabled: added || busy || !sessionId,
+            onClick: () => add(distro),
+          }, added ? t('wslAdded') : busy ? t('saving') : t('wslAdd')))
+      })
+
+      const listBlock = loading && distros.length === 0
+        ? h('div', { className: 'sshm-wsl-list' }, [0, 1].map((index) => h('div', { className: 'sshm-skeleton', key: index },
+          h('div', { className: 'sshm-sk', style: { width: '22px', height: '22px', borderRadius: '6px' } }),
+          h('div', { className: 'sshm-sk', style: { flex: 1, maxWidth: '180px' } }))))
+        : distros.length === 0
+          ? h('div', { className: 'sshm-wsl-list' }, h('div', { className: 'sshm-wsl-empty' }, t('wslEmpty')))
+          : h('div', { className: 'sshm-wsl-list' }, rows)
+
+      return h(Modal, {
+        title: t('wslTitle'),
+        onClose,
+        footer: [
+          h(Button, { key: 'refresh', variant: 'ghost', icon: Icons.refresh(14), disabled: loading, onClick: () => setTick((value) => value + 1) }, t('wslRefresh')),
+          h(Button, { key: 'close', variant: 'ghost', onClick: onClose }, t('close')),
+        ],
+      },
+        h('div', { className: 'sshm-modal-body' },
+          h('div', { className: 'sshm-field-full sshm-hint' }, t('wslHint')),
+          error ? h('div', { className: 'sshm-alert sshm-field-full' }, error) : null,
+          h('div', { className: 'sshm-field-full' }, listBlock)))
     }
 
     // --- management page ----------------------------------------------------
@@ -583,17 +769,46 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = React.useState(false)
       const [editorError, setEditorError] = React.useState(null)
       const [toast, setToast] = React.useState(null)
+      const [wslOpen, setWslOpen] = React.useState(false)
+      const [controlling, setControlling] = React.useState(null)
 
       const hosts = state && Array.isArray(state.hosts) ? state.hosts : []
 
+      // start / terminate / set-default for a WSL host; the Host answers with the
+      // refreshed {distros, hosts, grants}, so one reload is enough afterwards.
+      async function controlWsl(host, action) {
+        setControlling(host.id)
+        try {
+          await callHost(ctx, sessionId, { op: 'wsl.control', action, distro: host.host }, new AbortController().signal)
+          const label = action === 'start' ? t('wslStart') : action === 'terminate' ? t('wslStop') : t('wslSetDefault')
+          setToast({ ok: true, text: interp(t('wslControlDone'), { action: label, name: host.name || host.host }) })
+          reload()
+        } catch (failure) {
+          setToast({ ok: false, text: interp(t('failed'), { message: failure && failure.message ? failure.message : String(failure) }) })
+        } finally {
+          setControlling(null)
+        }
+      }
+
+      function stopWsl(host) {
+        const ask = typeof window !== 'undefined' && typeof window.confirm === 'function' ? window.confirm(t('wslStopConfirm')) : true
+        if (!ask) return
+        controlWsl(host, 'terminate')
+      }
+
       async function saveHost(draft) {
+        const kind = draft.kind === 'wsl' ? 'wsl' : 'ssh'
         const id = draft.id || ('h-' + Date.now().toString(36))
-        const record = { id, name: draft.name, host: draft.host, user: draft.user, port: draft.port, root: draft.root, group: draft.group, note: draft.note }
+        const record = kind === 'wsl'
+          ? { id, name: draft.name, kind: 'wsl', host: draft.host, group: draft.group, note: draft.note }
+          : { id, name: draft.name, kind: 'ssh', host: draft.host, user: draft.user, port: draft.port, root: draft.root, group: draft.group, note: draft.note }
         setBusy(true)
         setEditorError(null)
         try {
-          if (draft.clearPassword === true) await callCredentials(ctx, 'unset', [passwordRefFor(id)])
-          else if (typeof draft.password === 'string' && draft.password !== '') await callCredentials(ctx, 'set', [passwordRefFor(id), draft.password])
+          if (kind !== 'wsl') {
+            if (draft.clearPassword === true) await callCredentials(ctx, 'unset', [passwordRefFor(id)])
+            else if (typeof draft.password === 'string' && draft.password !== '') await callCredentials(ctx, 'set', [passwordRefFor(id), draft.password])
+          }
           await callHost(ctx, sessionId, { op: 'host.upsert', host: record }, new AbortController().signal)
           setEditor(null)
           reload()
@@ -633,6 +848,7 @@ window.__ModuleLoader__.load({
           h('h1', { className: 'sshm-page-title' }, t('title')),
           h('div', { className: 'sshm-page-sub' }, t('subtitle'))),
         h('div', { className: 'sshm-head-actions' },
+          h(Button, { icon: Icons.terminal(15), disabled: !sessionId, onClick: () => setWslOpen(true) }, t('addWsl')),
           h(Button, { variant: 'primary', icon: Icons.plus(15), disabled: !sessionId, onClick: () => { setEditorError(null); setEditor({ host: null }) } }, t('add'))))
 
       const skeletons = h('div', { className: 'sshm-list' }, [0, 1, 2].map((index) => h('div', { className: 'sshm-skeleton', key: index },
@@ -647,19 +863,34 @@ window.__ModuleLoader__.load({
         h('div', { className: 'sshm-empty-text' }, t('emptyHint')),
         sessionId ? h(Button, { variant: 'primary', icon: Icons.plus(15), onClick: () => { setEditorError(null); setEditor({ host: null }) } }, t('add')) : null)
 
-      const rows = hosts.map((host) => h('div', { className: 'sshm-row', key: host.id },
-        h('div', { className: 'sshm-glyph' }, Icons.server(17)),
-        h('div', { className: 'sshm-row-main' },
-          h('div', { className: 'sshm-row-title' },
-            h('span', { className: 'sshm-name' }, host.name),
-            h(StatusPill, { online: statuses[host.id], t }),
-            host.hasPassword ? h('span', { className: 'sshm-key', title: t('passwordStored') }, Icons.key(13)) : null),
-          h('div', { className: 'sshm-mono' }, (host.user ? host.user + '@' : '') + host.host + (Number(host.port) && Number(host.port) !== 22 ? ':' + host.port : '')),
-          host.note || host.root ? h('div', { className: 'sshm-note' }, [host.note, host.root ? 'root: ' + host.root : ''].filter(Boolean).join(' · ')) : null),
-        h('div', { className: 'sshm-row-actions' },
-          h(Button, { variant: 'ghost', icon: Icons.refresh(14), title: t('test'), onClick: () => testHost(host) }),
-          h(Button, { variant: 'ghost', icon: Icons.pencil(14), title: t('edit'), onClick: () => { setEditorError(null); setEditor({ host }) } }),
-          h(Button, { variant: 'ghost', icon: Icons.trash(14), title: t('remove'), onClick: () => setConfirm(host) }))))
+      const rows = hosts.map((host) => {
+        const kind = hostKind(host)
+        const isWsl = kind === 'wsl'
+        const running = host.state === 'Running'
+        return h('div', { className: 'sshm-row', key: host.id },
+          h('div', { className: 'sshm-glyph' }, isWsl ? Icons.terminal(17) : Icons.server(17)),
+          h('div', { className: 'sshm-row-main' },
+            h('div', { className: 'sshm-row-title' },
+              h('span', { className: 'sshm-name' }, host.name),
+              h(KindPill, { kind, t }),
+              isWsl ? null : h(StatusPill, { online: statuses[host.id], t }),
+              !isWsl && host.hasPassword ? h('span', { className: 'sshm-key', title: t('passwordStored') }, Icons.key(13)) : null),
+            isWsl
+              ? h('div', { className: 'sshm-kind-line' },
+                h('span', { className: 'sshm-dot', style: { background: running ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-idle-primary)' } }),
+                t('wslGroup') + ' · ' + distroStateText(host.state, t))
+              : h('div', { className: 'sshm-mono' }, (host.user ? host.user + '@' : '') + host.host + (Number(host.port) && Number(host.port) !== 22 ? ':' + host.port : '')),
+            isWsl
+              ? (host.note ? h('div', { className: 'sshm-note' }, host.note) : null)
+              : (host.note || host.root ? h('div', { className: 'sshm-note' }, [host.note, host.root ? 'root: ' + host.root : ''].filter(Boolean).join(' · ')) : null)),
+          h('div', { className: 'sshm-row-actions' },
+            isWsl ? h(Button, { variant: 'ghost', icon: Icons.play(14), title: t('wslStart'), disabled: busy || controlling === host.id, onClick: () => controlWsl(host, 'start') }) : null,
+            isWsl ? h(Button, { variant: 'ghost', icon: Icons.stop(14), title: t('wslStop'), disabled: busy || controlling === host.id, onClick: () => stopWsl(host) }) : null,
+            isWsl ? h(Button, { variant: 'ghost', icon: Icons.check(14), title: t('wslSetDefault'), disabled: busy || controlling === host.id, onClick: () => controlWsl(host, 'default') }) : null,
+            h(Button, { variant: 'ghost', icon: Icons.refresh(14), title: t('test'), onClick: () => testHost(host) }),
+            h(Button, { variant: 'ghost', icon: Icons.pencil(14), title: t('edit'), onClick: () => { setEditorError(null); setEditor({ host }) } }),
+            h(Button, { variant: 'ghost', icon: Icons.trash(14), title: t('remove'), onClick: () => setConfirm(host) })))
+      })
 
       const listBlock = loading && !state ? skeletons : hosts.length === 0 ? emptyState : h('div', { className: 'sshm-list' }, rows)
 
@@ -676,6 +907,14 @@ window.__ModuleLoader__.load({
             error: editorError,
             onCancel: () => { setEditor(null); setEditorError(null) },
             onSave: saveHost,
+          }) : null,
+          wslOpen ? h(WslAddModal, {
+            ctx,
+            sessionId,
+            t,
+            onClose: () => setWslOpen(false),
+            onAdded: reload,
+            notify: setToast,
           }) : null,
           confirm ? h(Modal, {
             title: t('deleteTitle'),
@@ -747,17 +986,21 @@ window.__ModuleLoader__.load({
             h('div', { className: 'sshm-pop-hint' }, t('pickerHint'))),
           hosts.length === 0
             ? h('div', { className: 'sshm-status' }, t('pickerEmpty'))
-            : h('div', { className: 'sshm-pop-list' }, hosts.map((host) => h('div', {
-              className: 'sshm-host-row',
-              key: host.id,
-              onClick: () => { if (!busy) toggle(host.id) },
-            },
-              h('span', { className: 'sshm-dot', style: { background: statuses[host.id] ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-idle-primary)' } }),
-              h('div', { className: 'sshm-host-main' },
-                h('div', { className: 'sshm-host-name' }, host.name, host.hasPassword ? h('span', { className: 'sshm-key' }, Icons.key(12)) : null),
-                h('div', { className: 'sshm-host-target' }, (host.user ? host.user + '@' : '') + host.host)),
-              h('span', { className: 'sshm-switch' + (granted.has(host.id) ? ' sshm-switch-on' : ''), role: 'switch', 'aria-checked': granted.has(host.id), title: t('granted') }),
-              h(Button, { variant: 'ghost', icon: Icons.folder(14), title: t('openFilesTitle'), onClick: (event) => { event.stopPropagation(); openHostFiles(ctx, sessionId, host.id); setOpen(false) } })))),
+            : h('div', { className: 'sshm-pop-list' }, hosts.map((host) => {
+              const kind = hostKind(host)
+              const isWsl = kind === 'wsl'
+              return h('div', {
+                className: 'sshm-host-row',
+                key: host.id,
+                onClick: () => { if (!busy) toggle(host.id) },
+              },
+                h('span', { className: 'sshm-dot', style: { background: statuses[host.id] ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-idle-primary)' } }),
+                h('div', { className: 'sshm-host-main' },
+                  h('div', { className: 'sshm-host-name' }, host.name, h(KindPill, { kind, t }), !isWsl && host.hasPassword ? h('span', { className: 'sshm-key' }, Icons.key(12)) : null),
+                  h('div', { className: 'sshm-host-target' }, isWsl ? t('wslGroup') + ' · ' + distroStateText(host.state, t) : (host.user ? host.user + '@' : '') + host.host)),
+                h('span', { className: 'sshm-switch' + (granted.has(host.id) ? ' sshm-switch-on' : ''), role: 'switch', 'aria-checked': granted.has(host.id), title: t('granted') }),
+                h(Button, { variant: 'ghost', icon: Icons.folder(14), title: t('openFilesTitle'), onClick: (event) => { event.stopPropagation(); openHostFiles(ctx, sessionId, host.id); setOpen(false) } }))
+            })),
           error ? h('div', { className: 'sshm-status sshm-status-error' }, interp(t('failed'), { message: error })) : null,
           h('div', { className: 'sshm-pop-foot' },
             h('span', null, granted.size === 0 ? t('pickerHint') : interp(t('pickerBadge'), { n: granted.size }) + ' / ' + hosts.length),

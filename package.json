@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-ssh-manager",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Remote SSH host resources for sessions: left-sidebar host management, per-session authorization, right-sidebar remote file browsing, and agent tools.",
